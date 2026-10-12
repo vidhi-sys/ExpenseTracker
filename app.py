@@ -20,6 +20,7 @@ from engine import (
     parse_receipt_text,
     query_ai_financial_assistant
 )
+from cache import cache
 
 # Page configuration
 st.set_page_config(
@@ -294,8 +295,9 @@ with tab_add:
             eq = round(amt / len(st.session_state.members), 2)
             custom_splits = {m: eq for m in st.session_state.members}
             
-        submitted = st.form_submit_button("Save Expense")
+            submitted = st.form_submit_button("Save Expense")
         if submitted:
+            cache.clear()
             new_id = len(st.session_state.expenses) + 1
             st.session_state.expenses.append({
                 "id": new_id,
@@ -342,6 +344,7 @@ with tab_scan:
     
     scan_payer = st.selectbox("Paid by", options=st.session_state.members, key="scan_payer")
     if st.button("Add to Expenses"):
+        cache.clear()
         eq = round(parsed["total"] / len(st.session_state.members), 2)
         st.session_state.expenses.append({
             "id": len(st.session_state.expenses) + 1,

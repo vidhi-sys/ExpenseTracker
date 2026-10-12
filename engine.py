@@ -13,6 +13,9 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import IsolationForest
 import heapq
+import hashlib
+import json
+from cache import cache
 
 # -------------------------------------------------------------
 # 1. SMART SETTLEMENT OPTIMIZER 2.0
@@ -47,12 +50,17 @@ def optimize_settlements(balances, constraints=None):
     """
     Minimizes transfer transactions using greedy two-pointer/heap matching.
     Supports constraints: e.g. prohibited routes or preferred direct channels.
-    balances: dict(member: net_balance)
-    constraints: list of dicts or tuples e.g. [("Alice", "Bob", "BLOCKED")]
-    Returns: list of {from, to, amount, channel}
+    Cached via Redis/fallback for sub-millisecond retrieval.
     """
     if constraints is None:
         constraints = []
+
+    # Compute cache key from balances and constraints
+    cache_payload = {"balances": balances, "constraints": constraints}
+    cache_key = "settlement:" + hashlib.md5(json.dumps(cache_payload, sort_keys=True).encode()).hexdigest()
+    cached_result = cache.get(cache_key)
+    if cached_result is not None:
+        return cached_result
         
     blocked_edges = set()
     for c in constraints:
@@ -121,6 +129,7 @@ def optimize_settlements(balances, constraints=None):
         if creditors[j][1] <= 0.01:
             j += 1
 
+    cache.set(cache_key, settlements, ttl_seconds=600)
     return settlements
 
 
@@ -253,8 +262,20 @@ def parse_receipt_text(ocr_text):
 def query_ai_financial_assistant(prompt, df_expenses, balances, settlements):
     """
     Deterministic NLP & Grounded Query Engine for group questions.
+    Cached via Redis for instant response.
     """
-    p = prompt.lower()
+    p = prompt.lower().strip()
+    cache_key = f"ai_query:{hashlib.md5(p.encode()).hexdigest()}"
+    cached_ans = cache.get(cache_key)
+    if cached_ans:
+        return cached_ans
+
+    ans = _compute_ai_assistant_response(p, df_expenses, balances, settlements)
+    cache.set(cache_key, ans, ttl_seconds=300)
+    return ans
+
+
+def _compute_ai_assistant_response(p, df_expenses, balances, settlements):
     
     if "highest" in p or "owes the most" in p or "max debt" in p:
         debtors = {k: v for k, v in balances.items() if v < 0}
